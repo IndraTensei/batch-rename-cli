@@ -263,5 +263,67 @@ class TestIntegration:
             assert "." not in result.rsplit(".", 1)[0], f"Extra dot in stem for case: {case}"
 
 
+# ── New feature tests ──────────────────────────────────────────────────────
+
+class TestStripChars:
+    def test_strip_single_char(self):
+        result = generate_new_name("file@name.txt", strip_chars="@")
+        assert result == "filename.txt"
+
+    def test_strip_multiple_chars(self):
+        result = generate_new_name("file@name#1.txt", strip_chars="@#")
+        assert result == "filename1.txt"
+
+    def test_strip_chars_empty_string(self):
+        result = generate_new_name("filename.txt", strip_chars="")
+        assert result == "filename.txt"
+
+    def test_strip_chars_no_match(self):
+        result = generate_new_name("filename.txt", strip_chars="xyz")
+        assert result == "filename.txt"
+
+
+class TestReplaceSpaces:
+    def test_replace_with_underscore(self):
+        result = generate_new_name("my file name.txt", replace_spaces="_")
+        assert result == "my_file_name.txt"
+
+    def test_replace_with_dash(self):
+        result = generate_new_name("my file name.txt", replace_spaces="-")
+        assert result == "my-file-name.txt"
+
+    def test_replace_with_dot(self):
+        result = generate_new_name("my file name.txt", replace_spaces=".")
+        assert result == "my.file.name.txt"
+
+    def test_replace_spaces_no_spaces(self):
+        result = generate_new_name("myfilename.txt", replace_spaces="_")
+        assert result == "myfilename.txt"
+
+    def test_replace_spaces_with_case(self):
+        result = generate_new_name("My File Name.txt", replace_spaces="_", case="lower")
+        assert result == "my_file_name.txt"
+
+
+class TestCombinedNewFeatures:
+    def test_strip_and_replace_spaces(self):
+        result = generate_new_name("my @file!.txt", strip_chars="@!", replace_spaces="_")
+        assert result == "my_file.txt"
+
+    def test_strip_chars_with_prefix(self):
+        result = generate_new_name("file@name.txt", strip_chars="@", prefix="doc_")
+        assert result == "doc_filename.txt"
+
+    def test_all_new_features_combined(self):
+        result = generate_new_name(
+            "My @File #Name.txt",
+            strip_chars="@#",
+            replace_spaces="_",
+            case="lower",
+            prefix="v2_",
+        )
+        assert result == "v2_my_file_name.txt"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

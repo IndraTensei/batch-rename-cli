@@ -86,6 +86,9 @@ batch-rename *.jpg --prefix "vacation_" --numbering
 | 🎯 **Filter** | By extension, exclude patterns |
 | 📊 **Sort** | By name, date, size, or preserve original order |
 | 🎨 **Colored Output** | Beautiful terminal UI with color-coded previews |
+| **Strip Characters** | Remove specific unwanted characters from filenames |
+| **Replace Spaces** | Replace spaces with underscores, dashes, or any character |
+| **Interactive Mode** | Confirm or skip each rename individually |
 
 ---
 
@@ -122,6 +125,9 @@ batch-rename [OPTIONS] [PATHS...]
 | `--include-dirs` | | Also rename directories |
 | `--extensions EXT [EXT...]` | `-e` | Only process these extensions |
 | `--exclude PAT [PAT...]` | `-x` | Exclude matching patterns |
+| `--strip-chars CHARS` | | Remove specific characters from filenames |
+| `--replace-spaces CHAR` | | Replace spaces with the given character |
+| `--interactive` | `-i` | Prompt before each rename |
 | `--sort ORDER` | | Sort: `name`, `date`, `size`, `none` |
 | `--dry-run` | | Preview without renaming |
 | `--force` | | Overwrite existing files |
@@ -186,6 +192,31 @@ batch-rename reports/ --date "%Y-%m-%d"
 ```bash
 # Rename all .py files in a project, excluding __pycache__
 batch-rename src/ --recursive --extensions py --exclude "__pycache__*" --case snake
+```
+
+### Strip unwanted characters
+```bash
+# Remove special characters from filenames
+batch-rename *.txt --strip-chars "!@#$%"
+
+# Before: report@final#.txt | After: reportfinal.txt
+```
+
+### Replace spaces
+```bash
+# Replace spaces with underscores
+batch-rename photos/ --replace-spaces "_"
+
+# Before: my photo.jpg | After: my_photo.jpg
+```
+
+### Interactive mode
+```bash
+# Prompt before each rename for selective control
+batch-rename *.txt --find "old" --replace "new" --interactive
+
+# Each file will show: file_old.txt | file_new.txt (y/N/a)
+# Press y to confirm, n to skip, a to apply all remaining
 ```
 
 ### Dry run (always try first!)

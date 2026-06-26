@@ -123,6 +123,8 @@ def generate_new_name(
     date_fmt: Optional[str] = None,
     trim_ext: bool = False,
     new_ext: Optional[str] = None,
+    strip_chars: Optional[str] = None,
+    replace_spaces: Optional[str] = None,
 ) -> str:
     """Generate a new filename based on the given transformation rules."""
     stem = Path(original).stem
@@ -150,10 +152,19 @@ def generate_new_name(
         date_str = datetime.now().strftime(date_fmt)
         stem = f"{stem}_{date_str}"
 
-    # 6. Prefix / Suffix
+    # 6. Strip characters
+    if strip_chars:
+        for ch in strip_chars:
+            stem = stem.replace(ch, "")
+
+    # 7. Replace spaces
+    if replace_spaces is not None:
+        stem = stem.replace(" ", replace_spaces)
+
+    # 8. Prefix / Suffix
     stem = prefix + stem + suffix
 
-    # 7. Extension handling
+    # 9. Extension handling
     if trim_ext:
         ext = ""
     elif new_ext is not None:
@@ -271,6 +282,8 @@ def perform_rename(
             date_fmt=args.date,
             trim_ext=args.trim_ext,
             new_ext=args.new_ext,
+            strip_chars=args.strip_chars,
+            replace_spaces=args.replace_spaces,
         )
         dst = f.parent / new_name
         operations.append((f, dst))
@@ -289,11 +302,56 @@ def perform_rename(
             if dst in conflicts
         ):
             print(
-                colorize("⚠ Warning: Destination conflicts detected!", Colors.RED)
+                colorize("Warning: Destination conflicts detected!", Colors.RED)
             )
             print(colorize("  Use --force to override.", Colors.GRAY))
 
-    # Execute renames
+    # Interactive mode: prompt for each rename
+    if getattr(args, 'interactive', False):
+        for src, dst in operations:
+            if src == dst:
+                continue
+            prompt = f"  Rename {colorize(src.name, Colors.YELLOW)} -> {colorize(dst.name, Colors.GREEN)}? [y/N/a(ll)] "
+            try:
+                answer = input(prompt).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print(colorize("\n  Aborted.", Colors.RED))
+                return operations
+            if answer == 'a':
+                # Continue with all remaining without prompting
+                for s, d in operations[operations.index((src, dst)) + 1:]:
+                    if s == d:
+                        continue
+                    if d.exists() and not args.force:
+                        print(colorize(f"  Skipping {s.name}: destination exists", Colors.YELLOW))
+                        continue
+                    try:
+                        shutil.move(str(s), str(d))
+                        journal_ops.append({"src": str(s), "dst": str(d)})
+                    except OSError as e:
+                        print(colorize(f"  Error renaming {s.name}: {e}", Colors.RED))
+                break
+            elif answer == 'y':
+                if dst.exists() and not args.force:
+                    print(colorize(f"  Skipping {src.name}: destination exists", Colors.YELLOW))
+                    continue
+                try:
+                    shutil.move(str(src), str(dst))
+                    journal_ops.append({"src": str(src), "dst": str(dst)})
+                except OSError as e:
+                    print(colorize(f"  Error renaming {src.name}: {e}", Colors.RED))
+            else:
+                print(colorize(f"  Skipped: {src.name}", Colors.GRAY))
+
+        if journal_ops:
+            journal_path = save_journal(journal_ops)
+            print(
+                colorize(f"\n  Undo journal saved: ", Colors.DIM)
+                + colorize(str(journal_path), Colors.GRAY)
+            )
+        return operations
+
+    # Execute renames (non-interactive)
     for src, dst in operations:
         if src == dst:
             continue
@@ -311,7 +369,7 @@ def perform_rename(
     if journal_ops:
         journal_path = save_journal(journal_ops)
         print(
-            colorize(f"\n  📝 Undo journal saved: ", Colors.DIM)
+            colorize(f"\n  Undo journal saved: ", Colors.DIM)
             + colorize(str(journal_path), Colors.GRAY)
         )
 
@@ -513,6 +571,19 @@ Examples:
         action="store_true",
         help="Disable colored output",
     )
+    parser.add_argument(
+        "--strip-chars",
+        help="Remove specific characters from filenames (e.g. \"!@#\")",
+    )
+    parser.add_argument(
+        "--replace-spaces",
+        help="Replace spaces with the given character (e.g. \"_\" or \"-\")",
+    )
+    parser.add_argument(
+        "--interactive", "-i",
+        action="store_true",
+        help="Prompt before each rename",
+    )
 
     return parser
 
@@ -545,6 +616,7 @@ def main():
     transforms = [
         args.find, args.regex_find, args.prefix, args.suffix,
         args.case, args.numbering, args.date, args.new_ext, args.trim_ext,
+        args.strip_chars, args.replace_spaces,
     ]
     if not any(t for t in transforms if t):
         print(
