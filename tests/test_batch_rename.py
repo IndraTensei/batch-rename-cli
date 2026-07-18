@@ -20,6 +20,8 @@ from src.batch_rename import (
     save_journal,
     load_latest_journal,
     list_journals,
+    sanitize_name,
+    apply_template,
     JOURNAL_DIR,
 )
 
@@ -323,6 +325,103 @@ class TestCombinedNewFeatures:
             prefix="v2_",
         )
         assert result == "v2_my_file_name.txt"
+
+
+# ── New 1.1.0 feature tests ───────────────────────────────────────────────
+
+class TestNumberFormat:
+    def test_suffix_default(self):
+        result = generate_new_name(
+            "img.png", numbering=True, number_format="suffix",
+            number_start=1, number_pad=3, index=0,
+        )
+        assert result == "img_001.png"
+
+    def test_prefix_placement(self):
+        result = generate_new_name(
+            "img.png", numbering=True, number_format="prefix",
+            number_start=1, number_pad=3, index=0,
+        )
+        assert result == "001_img.png"
+
+    def test_prefix_with_start(self):
+        result = generate_new_name(
+            "shot.jpg", numbering=True, number_format="prefix",
+            number_start=10, number_pad=2, index=2,
+        )
+        assert result == "12_shot.jpg"
+
+
+class TestSanitize:
+    def test_strips_illegal_chars(self):
+        # Illegal chars are removed (not replaced), so adjacent words merge.
+        result = generate_new_name("my:file<name>.txt", sanitize=True)
+        assert result == "myfilename.txt"
+
+    def test_collapses_separators(self):
+        result = generate_new_name("a   b---c.txt", sanitize=True)
+        # sanitize preserves the extension and collapses runs of separators.
+        assert "__" not in result
+        assert " " not in result
+        assert result.endswith(".txt")
+
+    def test_trims_leading_trailing_dots(self):
+        result = generate_new_name(".hidden file.", sanitize=True)
+        assert not result.startswith(".")
+        assert not result.endswith(".")
+
+    def test_never_empty(self):
+        result = generate_new_name("???", sanitize=True)
+        assert result == "file"
+
+    def test_sanitize_with_template(self):
+        result = generate_new_name(
+            "bad:name.txt", template="{stem}{ext}", sanitize=True,
+        )
+        assert ":" not in result
+        assert result == "badname.txt"
+
+
+class TestTemplate:
+    def test_stem_and_ext(self):
+        result = generate_new_name(
+            "photo.jpg", template="{stem}_edit{ext}",
+        )
+        assert result == "photo_edit.jpg"
+
+    def test_number_placeholder(self):
+        result = generate_new_name(
+            "x.png", template="{n}_{stem}",
+            numbering=True, number_start=1, number_pad=2, index=0,
+        )
+        # Template has no {ext}, so the extension is intentionally dropped.
+        assert result == "01_x"
+
+    def test_date_placeholder(self):
+        result = generate_new_name("doc.txt", template="{date}_{stem}")
+        # Default date format is YYYY-MM-DD; template has no {ext} so ext is dropped.
+        assert result.startswith("20")
+        assert result.endswith("_doc")
+
+    def test_date_format_placeholder(self):
+        result = generate_new_name(
+            "doc.txt", template="{date:%Y%m%d}_{stem}", date_fmt="%Y%m%d",
+        )
+        # 8-char date + "_" + "doc"
+        assert result == "20260718_doc" or len(result) == 8 + 1 + len("doc")
+        assert result.endswith("_doc")
+
+    def test_rand4_placeholder(self):
+        result = generate_new_name("f.txt", template="{stem}_{rand4}{ext}")
+        import re as _re
+        assert _re.fullmatch(r"f_[a-z0-9]{4}\.txt", result)
+
+    def test_template_overrides_other_transforms(self):
+        # When a template is supplied, literal find/replace is ignored.
+        result = generate_new_name(
+            "old.txt", template="{stem}{ext}", find="old", replace="new",
+        )
+        assert result == "old.txt"
 
 
 if __name__ == "__main__":

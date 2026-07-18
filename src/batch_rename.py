@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # ── Color helpers ──────────────────────────────────────────────────────────
 
@@ -107,6 +107,92 @@ def apply_case(name: str, case: str) -> str:
     return name
 
 
+# Characters that are illegal in filenames on common filesystems.
+ILLEGAL_CHARS = set('<>:"/\\|?*\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f')
+
+
+def sanitize_name(name: str) -> str:
+    """Remove filesystem-illegal characters and collapse repeated separators.
+
+    Strips characters that are invalid in filenames on Windows/macOS/Linux,
+    removes leading/trailing dots and whitespace, and collapses runs of
+    separators (``-``, ``_``, ``.`` and spaces) into a single underscore.
+    The final extension (the last ``.`` and what follows) is preserved so
+    ``report.final.txt`` stays a valid file with its ``.txt`` extension,
+    provided the extension looks like a real one (no spaces/separators).
+    """
+    import os
+
+    root, ext = os.path.splitext(name)
+    # Only keep the extension if it looks like a genuine one: non-empty and
+    # more than a bare dot (e.g. ".txt" is kept, but a trailing "." is not).
+    if not ext or len(ext) <= 1 or any(ch in ext for ch in (" ", "/", "\\")):
+        body, suffix = name, ""
+    else:
+        body, suffix = root, ext
+
+    cleaned = "".join(ch for ch in body if ch not in ILLEGAL_CHARS)
+    cleaned = cleaned.strip().strip(".")
+    # Collapse runs of separators/spaces into a single underscore.
+    cleaned = re.sub(r"[\s\-_.]+", "_", cleaned)
+    # Avoid producing an empty body.
+    cleaned = cleaned or "file"
+    return cleaned + suffix
+
+
+def apply_template(
+    template: str,
+    stem: str,
+    ext: str,
+    index: int = 0,
+    number_start: int = 1,
+    number_pad: int = 2,
+    date_fmt: Optional[str] = None,
+) -> str:
+    """Render a custom rename template.
+
+    Supported placeholders:
+      {stem}            - original filename stem
+      {ext}             - original extension including the leading dot
+      {n}               - zero-padded sequential number (1-based from start)
+      {date}            - current date in YYYY-MM-DD (or {date:%Y%m%d} format)
+      {rand4} / {rand6} - random alphanumeric suffix
+    """
+    num = str(number_start + index).zfill(number_pad)
+    date_str = datetime.now().strftime(date_fmt) if date_fmt else datetime.now().strftime("%Y-%m-%d")
+    import secrets
+    import string
+
+    def rand(k: int) -> str:
+        alphabet = string.ascii_lowercase + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(k))
+
+    def repl(m: "re.Match[str]") -> str:
+        token = m.group(1)
+        if token == "stem":
+            return stem
+        if token == "ext":
+            return ext
+        if token == "n":
+            return num
+        if token == "date":
+            return date_str
+        if token.startswith("date:"):
+            fmt = token.split(":", 1)[1]
+            try:
+                return datetime.now().strftime(fmt)
+            except (ValueError, TypeError):
+                return date_str
+        if token == "rand4":
+            return rand(4)
+        if token == "rand6":
+            return rand(6)
+        # Unknown placeholder: leave it untouched.
+        return m.group(0)
+
+    return re.sub(r"\{(stem|ext|n|date(?::[^}]+)?|rand4|rand6)\}", repl, template)
+
+
 def generate_new_name(
     original: str,
     find: Optional[str] = None,
@@ -119,16 +205,34 @@ def generate_new_name(
     numbering: bool = False,
     number_start: int = 1,
     number_pad: int = 2,
+    number_format: str = "suffix",
     index: int = 0,
     date_fmt: Optional[str] = None,
     trim_ext: bool = False,
     new_ext: Optional[str] = None,
     strip_chars: Optional[str] = None,
     replace_spaces: Optional[str] = None,
+    sanitize: bool = False,
+    template: Optional[str] = None,
 ) -> str:
     """Generate a new filename based on the given transformation rules."""
     stem = Path(original).stem
     ext = Path(original).suffix
+
+    # 0. Custom template (overrides the individual transforms below)
+    if template is not None:
+        result = apply_template(
+            template,
+            stem=stem,
+            ext=ext,
+            index=index,
+            number_start=number_start,
+            number_pad=number_pad,
+            date_fmt=date_fmt,
+        )
+        if sanitize:
+            result = sanitize_name(result)
+        return result
 
     # 1. Find & replace (literal)
     if find is not None and replace is not None:
@@ -145,7 +249,10 @@ def generate_new_name(
     # 4. Numbering
     if numbering:
         num_str = str(number_start + index).zfill(number_pad)
-        stem = f"{stem}_{num_str}"
+        if number_format == "prefix":
+            stem = f"{num_str}_{stem}"
+        else:  # suffix (default)
+            stem = f"{stem}_{num_str}"
 
     # 5. Date insertion
     if date_fmt:
@@ -163,14 +270,19 @@ def generate_new_name(
 
     # 8. Prefix / Suffix
     stem = prefix + stem + suffix
-
     # 9. Extension handling
     if trim_ext:
         ext = ""
     elif new_ext is not None:
         ext = new_ext if new_ext.startswith(".") else f".{new_ext}"
 
-    return stem + ext
+    result = stem + ext
+
+    # 10. Sanitize (filesystem-safe cleanup)
+    if sanitize:
+        result = sanitize_name(result)
+
+    return result
 
 
 def collect_files(
@@ -278,12 +390,15 @@ def perform_rename(
             numbering=args.numbering,
             number_start=args.number_start,
             number_pad=args.number_pad,
+            number_format=args.number_format,
             index=i,
             date_fmt=args.date,
             trim_ext=args.trim_ext,
             new_ext=args.new_ext,
             strip_chars=args.strip_chars,
             replace_spaces=args.replace_spaces,
+            sanitize=args.sanitize,
+            template=args.template,
         )
         dst = f.parent / new_name
         operations.append((f, dst))
@@ -441,9 +556,12 @@ def build_parser() -> argparse.ArgumentParser:
 Examples:
   batch-rename *.txt --find "old" --replace "new"
   batch-rename photos/ --prefix "vacation_" --numbering --case lower
-  batch-rename *.jpg --regex-find "(\\d+)" --regex-replace "img_\\1"
+  batch-rename *.jpg --regex-find "(\\\\d+)" --regex-replace "img_\\\\1"
   batch-rename docs/ --case snake --new-ext md
   batch-rename . --recursive --exclude "*.git*" --case kebab
+  batch-rename *.png --numbering --number-format prefix --number-pad 3
+  batch-rename * --sanitize
+  batch-rename photos/ --template "{n}_{date}_{stem}{ext}"
   batch-rename --undo
   batch-rename --journals
         """,
@@ -501,6 +619,12 @@ Examples:
         type=int,
         default=2,
         help="Number padding width (default: 2)",
+    )
+    parser.add_argument(
+        "--number-format",
+        choices=["suffix", "prefix"],
+        default="suffix",
+        help="Numbering placement: 'suffix' -> name_001, 'prefix' -> 001_name (default: suffix)",
     )
     parser.add_argument(
         "--date", "-d",
@@ -584,6 +708,15 @@ Examples:
         action="store_true",
         help="Prompt before each rename",
     )
+    parser.add_argument(
+        "--sanitize",
+        action="store_true",
+        help="Strip filesystem-illegal characters (< > : \" / \\ | ? *) and collapse repeated separators",
+    )
+    parser.add_argument(
+        "--template",
+        help="Custom rename template. Placeholders: {stem} {ext} {n} {date} {date:%%Y%%m%%d} {rand4} {rand6}",
+    )
 
     return parser
 
@@ -616,7 +749,7 @@ def main():
     transforms = [
         args.find, args.regex_find, args.prefix, args.suffix,
         args.case, args.numbering, args.date, args.new_ext, args.trim_ext,
-        args.strip_chars, args.replace_spaces,
+        args.strip_chars, args.replace_spaces, args.template, args.sanitize,
     ]
     if not any(t for t in transforms if t):
         print(

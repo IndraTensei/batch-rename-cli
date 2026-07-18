@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "batch-rename"
-version = "1.0.0"
+version = "1.1.0"
 description = "Powerful batch file renaming made simple"
 readme = "README.md"
 license = {text = "MIT"}

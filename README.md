@@ -85,10 +85,13 @@ batch-rename *.jpg --prefix "vacation_" --numbering
 | 📂 **Recursive** | Process entire directory trees |
 | 🎯 **Filter** | By extension, exclude patterns |
 | 📊 **Sort** | By name, date, size, or preserve original order |
-| 🎨 **Colored Output** | Beautiful terminal UI with color-coded previews |
+| 🎯 **Colored Output** | Beautiful terminal UI with color-coded previews |
 | **Strip Characters** | Remove specific unwanted characters from filenames |
 | **Replace Spaces** | Replace spaces with underscores, dashes, or any character |
 | **Interactive Mode** | Confirm or skip each rename individually |
+| **Sanitize** | Strip filesystem-illegal characters (`< > : " / \ | ? *`) and collapse repeated separators in one step |
+| **Custom Template** | Full control via `{stem}`, `{ext}`, `{n}`, `{date}`, `{rand4}` placeholders |
+| **Number Placement** | Put the sequence number as a prefix (`001_name`) or suffix (`name_001`) |
 
 ---
 
@@ -118,6 +121,7 @@ batch-rename [OPTIONS] [PATHS...]
 | `--numbering` | `-n` | Add sequential numbering |
 | `--number-start N` | | Starting number (default: 1) |
 | `--number-pad N` | | Number padding width (default: 2) |
+| `--number-format FMT` | | Number placement: `suffix` (`name_001`) or `prefix` (`001_name`); default `suffix` |
 | `--date FORMAT` | `-d` | Append date (strftime format) |
 | `--new-ext EXT` | | Change file extension |
 | `--trim-ext` | | Remove file extensions |
@@ -127,6 +131,8 @@ batch-rename [OPTIONS] [PATHS...]
 | `--exclude PAT [PAT...]` | `-x` | Exclude matching patterns |
 | `--strip-chars CHARS` | | Remove specific characters from filenames |
 | `--replace-spaces CHAR` | | Replace spaces with the given character |
+| `--sanitize` | | Strip filesystem-illegal characters and collapse repeated separators |
+| `--template TPL` | | Custom rename template using `{stem}`, `{ext}`, `{n}`, `{date}`, `{rand4}` |
 | `--interactive` | `-i` | Prompt before each rename |
 | `--sort ORDER` | | Sort: `name`, `date`, `size`, `none` |
 | `--dry-run` | | Preview without renaming |
@@ -214,9 +220,34 @@ batch-rename photos/ --replace-spaces "_"
 ```bash
 # Prompt before each rename for selective control
 batch-rename *.txt --find "old" --replace "new" --interactive
-
 # Each file will show: file_old.txt | file_new.txt (y/N/a)
 # Press y to confirm, n to skip, a to apply all remaining
+```
+
+### Sanitize unsafe filenames
+```bash
+# Strip characters that are illegal on Windows/macOS/Linux and collapse separators
+batch-rename * --sanitize
+
+# Before: my:photo<1>.jpg | After: myphoto1.jpg
+# Before: report  final..txt | After: report_final.txt
+```
+
+### Number placement (prefix vs suffix)
+```bash
+# Put the sequence number before the name
+batch-rename photos/ --numbering --number-format prefix --number-pad 3
+
+# Before: DSC.jpg | After: 001_DSC.jpg
+# Before: IMG.jpg | After: 002_IMG.jpg
+```
+
+### Custom template
+```bash
+# Full control with placeholders: {stem} {ext} {n} {date} {date:%%Y%%m%%d} {rand4} {rand6}
+batch-rename photos/ --template "{n}_{date}_{stem}{ext}"
+
+# Before: Beach.jpg | After: 001_2024-06-13_Beach.jpg
 ```
 
 ### Dry run (always try first!)
